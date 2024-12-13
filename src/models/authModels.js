@@ -1,5 +1,5 @@
 import { runQuery } from '../helpers/helper.js';
-
+import { STATUS_CODES } from '../constants.js';
 // Function to get all users
 export const getAllUsers = async () => {
   const query = `
@@ -10,7 +10,7 @@ export const getAllUsers = async () => {
     LEFT JOIN Roles r ON u.role_id = r.role_id
     WHERE u.is_deleted = FALSE;
   `;
-  return await runQuery(query);
+  return await runQuery(query); 
 };
 
 // Fetch user details by email
@@ -85,15 +85,16 @@ export const getUserById = async (userId) => {
 };
 
 // Function to update a user
-export const updateUser = async (userId, username, email, address, pincode, updatedBy) => {
+export const updateUser = async (userId, username, address, pincode, updatedBy) => {
   const query = `
     UPDATE Users
-    SET username = ?, email = ?, address = ?, pincode = ?, updated_at = NOW(), updated_by = ?
+    SET username = ?, address = ?, pincode = ?, updated_at = NOW(), updated_by = ?
     WHERE user_id = ? AND is_deleted = FALSE;
   `;
-  const params = [username, email, address, pincode, updatedBy, userId];
+  const params = [username, address, pincode, updatedBy, userId]; 
   return await runQuery(query, params);
 };
+
 
 // Function to check if a user exists
 export const checkUserExists = async (userId) => {
@@ -103,7 +104,7 @@ export const checkUserExists = async (userId) => {
 
 // Function to soft delete a user by setting is_deleted to TRUE
 export const softDeleteUserById = async (userId) => {
-  const query = 'UPDATE Users SET is_deleted = TRUE WHERE user_id = ? AND is_deleted = FALSE';
+  const query = 'UPDATE Users SET is_deleted = TRUE WHERE user_id = ? AND is_deleted = FALSE ';
   return await runQuery(query, [userId]);
 };
 
@@ -175,7 +176,7 @@ export const createMeterReadingInDB = async (userId, meterNumber, readingDate, c
 
 // Function to add meter reading
 export const addMeterReadingInDB = async (userId, meterNumber, readingDate, consumption, isBillPaid, createdBy) => {
-  // finding meter_id using user_id and meter_number
+  // Finding meter_id using meter_number
   const findMeterQuery = `
     SELECT meter_id 
     FROM Meters 
@@ -184,52 +185,65 @@ export const addMeterReadingInDB = async (userId, meterNumber, readingDate, cons
   const meterResult = await runQuery(findMeterQuery, [meterNumber]);
 
   if (meterResult.length === 0) {
-    return false;
+    throw {
+      status: STATUS_CODES.NOT_FOUND,
+      message: "Meter number not found",
+    };
   }
 
   const meterId = meterResult[0].meter_id;
 
-  //finding user_meter_map_id from meter_id
-  const userMeterMapId = `
-    Select user_meter_map_id from
-    user_meter_mapping 
-    where meter_id=?`;
-
-  const userMeterIdResult = await runQuery(userMeterMapId, [meterId]);
-
-
-  //extracting usermetermapId
-  const userMeterMapID = userMeterIdResult[0].user_meter_map_id;
-
-
-  // Checking if a reading already exists for the same meter_id and reading_date
-  const checkDuplicateReadingQuery = `
-    SELECT * 
-    FROM Meter_Readings 
-    WHERE user_meter_map_id = ? AND reading_date = ?
+  // Finding user_meter_map_id from meter_id
+  const userMeterMapIdQuery = `
+    SELECT user_meter_map_id 
+    FROM user_meter_mapping 
+    WHERE meter_id = ? AND user_id = ?
   `;
-  const duplicateResult = await runQuery(checkDuplicateReadingQuery, [userMeterMapID, readingDate]);
+  const userMeterIdResult = await runQuery(userMeterMapIdQuery, [meterId, userId]);
 
-  if (duplicateResult.length > 0) {
-    return false;
+  if (userMeterIdResult.length === 0) {
+    throw {
+      status: STATUS_CODES.NOT_FOUND,
+      message: "User-meter mapping not found",
+    };
   }
 
+  const userMeterMapID = userMeterIdResult[0].user_meter_map_id;
+
+  // Checking if a reading already exists for the same month and year
+  const checkMonthlyReadingQuery = `
+    SELECT * 
+    FROM Meter_Readings 
+    WHERE user_meter_map_id = ? 
+      AND MONTH(reading_date) = MONTH(?) 
+      AND YEAR(reading_date) = YEAR(?)
+  `;
+  const duplicateResult = await runQuery(checkMonthlyReadingQuery, [userMeterMapID, readingDate, readingDate]);
+
+  if (duplicateResult.length > 0) {
+    throw {
+      status: STATUS_CODES.CONFLICT,
+      message: "A reading for this month already exists",
+    };
+  }
 
   const ratePerUnit = 10;
   const billAmount = consumption * ratePerUnit;
 
-  //  Inserting the meter reading into Meter_Readings table
+  // Inserting the meter reading
   const insertReadingQuery = `
     INSERT INTO Meter_Readings (
        user_meter_map_id, reading_date, consumption, bill_amount, is_bill_paid, 
-      created_at, created_by, updated_at, updated_by
+       created_at, created_by, updated_at, updated_by
     ) 
-    VALUES ( ?, ?, ?, ?, ?, NOW(), ?, NOW(), ?)
+    VALUES (?, ?, ?, ?, ?, NOW(), ?, NOW(), ?)
   `;
   await runQuery(insertReadingQuery, [userMeterMapID, readingDate, consumption, billAmount, isBillPaid, createdBy, createdBy]);
 
   return true;
 };
+
+
 
 export const updateMeterReadingInDB = async (readingId, consumption, readingDate, is_bill_paid, updatedBy) => {
   const ratePerUnit = 10;
@@ -495,6 +509,16 @@ export const validateMeter = async (user_id, meter_id) => {
   return result[0].count > 0;
 };
 
+export const checkDuplicateReading = async (user_id, meter_id, reading_date) => {
+  const query = `
+    SELECT COUNT(*) AS count
+    FROM meter_readings AS mr
+    JOIN user_meter_mapping AS umm ON mr.user_meter_map_id = umm.user_meter_map_id
+    WHERE umm.user_id = ? AND umm.meter_id = ? AND mr.reading_date = ? AND umm.is_deleted = 0 AND mr.is_deleted = 0
+  `;
+  const result = await runQuery(query, [user_id, meter_id, reading_date]);
+  return result[0].count > 0;
+};
 export const insertReadings = async (readings) => {
   const insertPromises = readings.map(({ user_id, meter_id, consumption, reading_date }) => {
     const ratePerUnit = 10;
@@ -524,3 +548,15 @@ export const getAllUserMeterMappingDataFromDB = async () => {
   `;
   return await runQuery(getAllMappingQuery);
 };
+
+export const getRoleIdByUserId = async (user_id) => {
+  console.log("user_id ", user_id);
+  
+
+  const getRoleIdQuery = `
+       SELECT role_id from users 
+      where user_id =? AND is_deleted = FALSE
+    `;
+  return await runQuery(getRoleIdQuery, [user_id]);
+
+}

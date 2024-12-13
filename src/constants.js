@@ -26,7 +26,14 @@ export const ERROR_MESSAGES = {
   MISSING_VAL_CSV:'Missing values in CSV row',
   USER_NOT_EXIST:'User ID does not exist',
   METER_NOT_ASSOCIATED_WITH_USER:'Meter ID is not associated with the User ID',
-  ERROR_PROCEESSING_CSV:'Error processing CSV file'
+  ERROR_PROCEESSING_CSV:'Error processing CSV file',
+  RECORD_ALREADY_EXISTS: 'Record already exists',
+  NO_TOKEN:'Access denied. No token provided.',
+  INVALID_TOKEN: 'Invalid token.',
+  USER_NOT_FOUND_INACTIVE: 'User not found or inactive.',
+  ROLE_NOT_FOUND: 'Role not found. Access denied.',
+  ACCESS_DENIED: 'Access denied. Insufficient permissions.',
+  READING_ALREADY_PRESENT: 'This month\'s reading is already present.'
 };
 
 // Success Messages
@@ -70,6 +77,7 @@ export const STATUS_CODES = {
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   NOT_FOUND: 404,
+  CONFLICT: 409,
   SERVER_ERROR: 500,
 };
 

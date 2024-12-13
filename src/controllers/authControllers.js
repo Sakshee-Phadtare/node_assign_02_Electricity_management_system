@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import {
   getUserByEmail, getRoleIdByEmail, createUser, getUserById, getAllUsers, updateUser, softDeleteUserById, createMeterReadingInDB, addMeterReadingInDB, updateMeterReadingInDB, deleteMeterReadingInDB, getMeterReadingsFromDB, getSpecificUserMeterReadingsFromDB, updateUserRoleInDB, checkMonthlyReadingExists,
   getMonthlyConsumptionData, getYearlyConsumptionData, getMonthlyCreatedUsersData, getYearlyCreatedUsersData, getMonthlyCreatedMetersData, getYearlyCreatedMetersData, checkUsernameExists,getAllUserMeterMappingDataFromDB
-  , getMeterNumberById, checkMonthlyReadingExistsInUpdate, getUserIdByEmail, userDashboardReadingsFromDB, validateUser, validateMeter, insertReadings
+  , getMeterNumberById, getRoleIdByUserId,checkMonthlyReadingExistsInUpdate, getUserIdByEmail, userDashboardReadingsFromDB, validateUser, validateMeter, insertReadings, checkDuplicateReading
 } from '../models/authModels.js';
 import { createMeterReadingSchema } from '../validations.js';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES, STATUS_CODES } from '../constants.js';
@@ -74,21 +74,13 @@ export const createUserController = async (req, res) => {
       };
     }
 
-    // const existingUsername = await checkUsernameExists(username);
-    // if (existingUsername.length > 0) {
-    //   throw {
-    //     status: STATUS_CODES.BAD_REQUEST,
-    //     message: `Username "${username}" is already taken.`,
-    //   };
-    // }
-
     const hashedPassword = await bcrypt.hash(password, 10);
     const userId = await createUser(username, email, hashedPassword, address, pincode);
 
     res.status(STATUS_CODES.CREATED).json({
       message: SUCCESS_MESSAGES.USER_CREATED,
       userId,
-      statusCode: res.statusCode,
+      statusCode: STATUS_CODES.CREATED,
     });
   } catch (err) {
     console.error('Error creating user:', err);
@@ -132,7 +124,7 @@ export const getAllUsersController = async (req, res) => {
   try {
     const users = await getAllUsers();
 
-    if (users.length === 0) {
+    if (!users.length) {
       throw {
         status: STATUS_CODES.NOT_FOUND,
         message: ERROR_MESSAGES.USER_NOT_FOUND,
@@ -157,17 +149,17 @@ export const getAllUsersController = async (req, res) => {
 export const updateUserController = async (req, res) => {
   try {
     const { user_id } = req.params;
-    const { username, email, address, pincode } = req.body;
+    const { username, address, pincode } = req.body; 
 
     const userExists = await getUserById(user_id);
-    if (userExists.length === 0) {
+    if (!userExists.length) {
       throw {
         status: STATUS_CODES.NOT_FOUND,
         message: ERROR_MESSAGES.USER_NOT_FOUND,
       };
     }
 
-    await updateUser(user_id, username, email, address, pincode, req.user_id);
+    await updateUser(user_id, username, address, pincode, req.user_id); 
 
     res.status(STATUS_CODES.SUCCESS).json({
       message: SUCCESS_MESSAGES.USER_UPDATED,
@@ -186,6 +178,13 @@ export const updateUserController = async (req, res) => {
 export const softDeleteUser = async (req, res) => {
   try {
     const { user_id } = req.params;
+    const role= await getRoleIdByUserId(user_id);
+
+    if(role[0].role_id === 3)
+    {
+      return res.status(STATUS_CODES.FORBIDDEN).json({message: 'cant delete this user'})
+    }
+
     const result = await softDeleteUserById(user_id);
 
     if (result.affectedRows === 0) {
@@ -214,9 +213,8 @@ export const createMeterReading = async (req, res) => {
   try {
     const { user_id } = req.params;
     const { meter_number, reading_date, consumption } = req.body;
-    console.log("reading_date.length ", reading_date.length);
-
-    const validationErrors = (reading_date.length === 0 && consumption.length === 0) ? validateInput(
+   
+    const validationErrors = (reading_date?.length === 0 && consumption?.length === 0) ? validateInput(
       { meter_number },
       createMeterReadingSchema
     ) : validateInput(
@@ -267,21 +265,15 @@ export const addMeterReading = async (req, res) => {
     const { user_id, meter_number } = req.params;
     const { reading_date, consumption, is_bill_paid } = req.body;
 
-    const result = await addMeterReadingInDB(user_id, meter_number, reading_date, consumption, is_bill_paid, req.user_id);
+    await addMeterReadingInDB(user_id, meter_number, reading_date, consumption, is_bill_paid, req.user_id);
 
-    if (result) {
-      return res.status(STATUS_CODES.CREATED).json({
-        message: SUCCESS_MESSAGES.METER_READING_ADDED,
-        statusCode: STATUS_CODES.CREATED,
-      });
-    } else {
-      throw {
-        status: STATUS_CODES.NOT_FOUND,
-        message: ERROR_MESSAGES.METER_NOT_FOUND_OR_READING_EXISTS,
-      };
-    }
+    return res.status(STATUS_CODES.CREATED).json({
+      message: SUCCESS_MESSAGES.METER_READING_ADDED,
+      statusCode: STATUS_CODES.CREATED,
+    });
   } catch (err) {
-    console.error('Error adding meter reading:', err);
+    console.error("Error adding meter reading:", err);
+
     res.status(err.status || STATUS_CODES.SERVER_ERROR).json({
       message: err.message || ERROR_MESSAGES.SERVER_ERROR,
       statusCode: err.status || STATUS_CODES.SERVER_ERROR,
@@ -303,7 +295,7 @@ export const updateMeterReading = async (req, res) => {
     if (isReadingExists) {
       return res
         .status(STATUS_CODES.BAD_REQUEST)
-        .json({ message: 'This month\'s reading is already present.' });
+        .json({ message: ERROR_MESSAGES.READING_ALREADY_PRESENT });
     }
 
     const result = await updateMeterReadingInDB(reading_id, consumption, reading_date, is_bill_paid, user_id);
@@ -369,7 +361,7 @@ export const getSpecificUserMeterReadings = async (req, res) => {
     const result = await getSpecificUserMeterReadingsFromDB(user_id, meter_number);
 
     if (result.length === 0) {
-      throw { status: STATUS_CODES.NOT_FOUND, message: ERROR_MESSAGES.METER_READINGS_NOT_FOUND };
+      throw { status: STATUS_CODES.NOT_FOUND, message: ERROR_MESSAGES.METER_READING_NOT_FOUND };
     }
 
     return res.status(STATUS_CODES.SUCCESS).json({
@@ -394,7 +386,7 @@ export const getAllMeterReadings = async (req, res) => {
     const result = await getMeterReadingsFromDB();
 
     if (result.length === 0) {
-      throw { status: STATUS_CODES.NOT_FOUND, message: ERROR_MESSAGES.METER_READINGS_NOT_FOUND };
+      throw { status: STATUS_CODES.NOT_FOUND, message: ERROR_MESSAGES.METER_READING_NOT_FOUND };
     }
 
     // Formatting the result 
@@ -732,6 +724,15 @@ export const uploadCsvController = async (req, res) => {
             validationErrors.push({
               row: sanitizedRow,
               error: ERROR_MESSAGES.METER_NOT_ASSOCIATED_WITH_USER,
+            });
+            continue;
+          }
+
+           // Check if record already exists
+           if (await checkDuplicateReading(user_id, meter_id, reading_date)) {
+            validationErrors.push({
+              row: sanitizedRow,
+              error: ERROR_MESSAGES.RECORD_ALREADY_EXISTS,
             });
             continue;
           }

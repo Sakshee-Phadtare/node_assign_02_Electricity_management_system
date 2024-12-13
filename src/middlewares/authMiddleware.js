@@ -1,6 +1,9 @@
 
 import jwt from 'jsonwebtoken';
 import db from '../config/db.js';  
+import { ERROR_MESSAGES, STATUS_CODES } from '../constants.js';
+
+
 export const verifyToken = (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1]; 
 
@@ -14,15 +17,11 @@ export const verifyToken = (req, res, next) => {
             return res.status(401).json({ message: 'Invalid token.' });
         }
 
-        console.log('Decoded token:', decoded); 
-
         // Attaching user_id to the request object
         req.user_id = decoded.userId; 
 
-
         const query = 'SELECT role_id FROM Users WHERE user_id = ? AND is_deleted = FALSE';
     
-
         db.query(query, [decoded.userId], (err, result) => {
             if (err) {
                 console.error('Error fetching role:', err);
@@ -45,11 +44,11 @@ export const verifyToken = (req, res, next) => {
 export const verifyRole = (...allowedRoles) => {
     return (req, res, next) => {        
         if (!req.role_id) {
-            return res.status(403).json({ message: 'Role not found. Access denied.' });
+            return res.status(STATUS_CODES.FORBIDDEN).json({ message: ERROR_MESSAGES.READING_NOT_FOUND});
         }
 
         if (!allowedRoles.includes(req.role_id)) {
-            return res.status(403).json({ message: 'Access denied. Insufficient permissions.' });
+            return res.status(STATUS_CODES.FORBIDDEN).json({ message: ERROR_MESSAGES.ACCESS_DENIED });
         }
         
         next(); 

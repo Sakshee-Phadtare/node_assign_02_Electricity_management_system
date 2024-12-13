@@ -4,14 +4,12 @@ import cors from 'cors';
 import authRoutes from './routes/authRoutes.js';
 
 dotenv.config();
+const app = express();
 
 const startServer = () => {
-  const app = express();
-
-
   const allowedOrigins = [
     process.env.CORS_ORIGIN,
-    process.env.LOCAL_ORIGIN 
+    process.env.LOCAL_ORIGIN  // destructuring
   ];
 
   
@@ -37,7 +35,7 @@ const startServer = () => {
 
   const PORT = process.env.PORT || 8000;
   app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+    console.log(`Server is running on: ${PORT}`);
   });
 };
 
